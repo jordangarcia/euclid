@@ -1,9 +1,10 @@
 import cv2, numpy as np, math, subprocess, json, sys, os
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from targets import get
 from lib import CANON, A
 
+HERE=os.path.dirname(os.path.abspath(__file__))
+MASKS=os.path.join(HERE,'..','data','target_masks')
 R=8; STEP=4; LAM=3
 ORDER=['S','B','B','T','T','s','s']
 MANUAL={
@@ -34,14 +35,13 @@ PM={t:[rast_poly(o) for o in orients(t)] for t in 'SBTs'}
 OR={t:orients(t) for t in 'SBTs'}
 
 def mask_for(n):
-    import newmask
-    if n in newmask.M: return newmask.get_new(n)
-    if n in MANUAL:
-        pts=np.array(MANUAL[n],np.int32)
-        mx,my=pts.min(0); pts=pts-[mx-20,my-20]
-        m=np.zeros((pts[:,1].max()+20,pts[:,0].max()+20),np.uint8)
-        cv2.fillPoly(m,[pts],1); return m
-    return get(n)
+    # data/target_masks holds the cleaned silhouette for every puzzle 1–101
+    # (screenshot masks for 1–3/5–58, answer-sheet masks for the rest).
+    path=os.path.join(MASKS,f'{n:03d}.png')
+    m=cv2.imread(path,cv2.IMREAD_GRAYSCALE)
+    if m is None:
+        raise FileNotFoundError(path)
+    return (m>127).astype(np.uint8)
 
 def theta_cands(m):
     cs,_=cv2.findContours(m.astype(np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)

@@ -46,11 +46,14 @@ def export(fits, order):
         out.append(dict(n=n,pieces=sol,outline=ol,angles=sorted(set(p['a'] for p in sol)),iou=round(r['iou'],3)))
     return out
 if __name__=='__main__':
-    fits=json.load(open(sys.argv[1]))
+    # usage: export.py [fits.json]  ->  data/puzzles.json (manual.json overrides fits)
     import os
-    if os.path.exists('manual.json'): fits.update(json.load(open('manual.json')))
+    data_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','data')
+    fits_path=sys.argv[1] if len(sys.argv)>1 else os.path.join(data_dir,'f3.json')
+    fits=json.load(open(fits_path))
+    manual=json.load(open(os.path.join(data_dir,'manual.json')))
+    fits.update(manual)
     order=sorted(map(int,fits))
     data=export(fits,order)
-    json.dump(data,open('puzzles.json','w'),separators=(',',':'))
-    html=open('game_template.html').read().replace('/*DATA*/[]',json.dumps(data,separators=(',',':')))
-    open(sys.argv[2],'w').write(html); print(len(data),'puzzles')
+    json.dump(data,open(os.path.join(data_dir,'puzzles.json'),'w'),separators=(',',':'))
+    print(len(data),'puzzles,',len(manual),'manual')

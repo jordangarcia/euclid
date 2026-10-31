@@ -131,11 +131,27 @@ function world(p){const r=p.a*Math.PI/180,c=Math.cos(r),s=Math.sin(r);const w=LO
   if(!p.preview) return w; const {c:C,n,s:k}=p.preview; return w.map(([x,y])=>{const d=(x-C[0])*n[0]+(y-C[1])*n[1];return [x-(1-k)*d*n[0],y-(1-k)*d*n[1]];});}
 const $=id=>document.getElementById(id);
 const svg=$('board'), NS='http://www.w3.org/2000/svg';
-let store={}; try{store=JSON.parse(localStorage.getItem('euclid-v2')||'{}')}catch(e){store={}}
+// Saved state is keyed by puzzle number so adding or fixing puzzles never shifts it.
+// euclid-v2 stored an index and used the old 5/6/7 numbering (old 6→5, 7→6, 5→7).
+function loadStore(){
+  try{
+    const v3=localStorage.getItem('euclid-v3');
+    if(v3){ return JSON.parse(v3); }
+    const v2=JSON.parse(localStorage.getItem('euclid-v2')||'null');
+    if(!v2){ return {}; }
+    const remap={6:5,7:6,5:7};
+    const solved=(v2.solved||[]).map(n=>remap[n]||n);
+    const old=PUZZLES[(v2.cur||1)-1];
+    return {solved, num: old?old.n:1};
+  }catch(e){
+    return {};
+  }
+}
+const store=loadStore();
 const solvedSet=new Set(store.solved||[]);
-function save(){try{localStorage.setItem('euclid-v2',JSON.stringify({solved:[...solvedSet],cur}))}catch(e){}}
-let cur=Math.min(Math.max(store.cur||1,1),PUZZLES.length);
-let P=null, pieces=[], sel=null, solved=false, VB=null, samples=[], angles=[0,90,180,270];
+function save(){try{localStorage.setItem('euclid-v3',JSON.stringify({solved:[...solvedSet],num:PUZZLES[cur-1].n}))}catch(e){}}
+let cur=Math.max(1,PUZZLES.findIndex(p=>p.n===store.num)+1);
+let P=null, pieces=[], sel=null, solved=false, VB=null, samples=[], targets=[], angles=[0,90,180,270];
 
 function ringsPath(polys){return polys.map(poly=>poly.map(r=>'M'+r.map(p=>p[0].toFixed(4)+' '+p[1].toFixed(4)).join('L')+'Z').join('')).join('');}
 function bbox(polys){let a=[1e9,1e9,-1e9,-1e9];for(const poly of polys)for(const r of poly)for(const [x,y] of r){a[0]=Math.min(a[0],x);a[1]=Math.min(a[1],y);a[2]=Math.max(a[2],x);a[3]=Math.max(a[3],y);}return a;}
@@ -176,9 +192,27 @@ function load(n){
   { const d=ringsPath(P.outline), bb=bbox(P.outline), sz=Math.max(bb[2]-bb[0],bb[3]-bb[1])*1.08, cx=(bb[0]+bb[2])/2, cy=(bb[1]+bb[3])/2, vb=`${cx-sz/2} ${cy-sz/2} ${sz} ${sz}`;
     for(const id of ['goal','full']){ $(id+'path').setAttribute('d',d); $(id+'svg').setAttribute('viewBox',vb); } }
   pieces=trayPositions(); renderPieces(); flipUI();
-  // samples
-  samples=[]; const bb=bbox(P.outline); const st=0.045;
-  for(let x=bb[0]+0.0123;x<bb[2];x+=st)for(let y=bb[1]+0.0171;y<bb[3];y+=st) if(inOutline(x,y)) samples.push([x,y]);
+  targets=buildTargets();
+  samples=targets[0].samples;
+}
+// A build counts at any rotation the pieces can reach: φ such that every solution
+// piece angle plus φ is still an allowed angle. Each target is the outline rotated by φ
+// with its own sample points; coverage takes the best of them.
+function samplePoints(outline){
+  const pts=[], bb=bbox(outline), st=0.045;
+  const inside=(x,y)=>outline.some(poly=>{let c=false;for(const r of poly)if(pip(x,y,r))c=!c;return c;});
+  for(let x=bb[0]+0.0123;x<bb[2];x+=st)for(let y=bb[1]+0.0171;y<bb[3];y+=st) if(inside(x,y)) pts.push([x,y]);
+  return pts;
+}
+function buildTargets(){
+  const norm=a=>((a%360)+360)%360;
+  const allowed=a=>angles.some(x=>Math.abs(norm(a)-x)<1e-3||Math.abs(norm(a)-x)>360-1e-3);
+  const phis=angles.filter(phi=>P.pieces.every(s=>allowed(s.a+phi)));
+  return phis.map(phi=>{
+    const r=phi*Math.PI/180, c=Math.cos(r), s=Math.sin(r);
+    const outline=phi===0?P.outline:P.outline.map(poly=>poly.map(ring=>ring.map(([x,y])=>[c*x-s*y,s*x+c*y])));
+    return {phi,outline,samples:samplePoints(outline)};
+  });
 }
 function renderPieces(){
   const g=$('pieces'); g.innerHTML='';
@@ -229,15 +263,18 @@ function clusters(ws){
   for(let a=0;a<n;a++)for(let b=a+1;b<n;b++) if(touch(ws[a],ws[b])||touch(ws[b],ws[a])) par[f(a)]=f(b);
   const g={}; for(let k=0;k<n;k++){(g[f(k)]=g[f(k)]||[]).push(ws[k]);} return Object.values(g);
 }
-function coverageWhole(ws){
+function coverageWhole(ws,T){
   let b=[1e9,1e9,-1e9,-1e9]; for(const w of ws)for(const [x,y] of w){b[0]=Math.min(b[0],x);b[1]=Math.min(b[1],y);b[2]=Math.max(b[2],x);b[3]=Math.max(b[3],y);}
-  const t=bbox(P.outline); if(Math.abs((b[2]-b[0])-(t[2]-t[0]))>0.03||Math.abs((b[3]-b[1])-(t[3]-t[1]))>0.03) return 0;
+  const t=bbox(T.outline), samples=T.samples; if(Math.abs((b[2]-b[0])-(t[2]-t[0]))>0.03||Math.abs((b[3]-b[1])-(t[3]-t[1]))>0.03) return 0;
   const dx=t[0]-b[0],dy=t[1]-b[1]; let h=0; for(const [x,y] of samples){for(const w of ws){if(inConvex(x-dx,y-dy,w)){h++;break;}}} return samples.length?h/samples.length:0;
 }
-function coverage(){ const ws=pieces.map(world); return Math.max(coverageParts(ws), P.outline.length>1?coverageWhole(ws):0); }
-function coverageParts(ws){
-  const cl=clusters(ws);
-  const comps=P.outline.map(poly=>({poly,bb:bbox([poly]),pts:samples.filter(([x,y])=>{let c=false;for(const r of poly)if(pip(x,y,r))c=!c;return c;})}));
+function coverage(){
+  const ws=pieces.map(world), cl=clusters(ws);
+  return Math.max(...targets.map(T=>Math.max(coverageParts(cl,T), T.outline.length>1?coverageWhole(ws,T):0)));
+}
+function coverageParts(cl,T){
+  const samples=T.samples;
+  const comps=T.outline.map(poly=>({poly,bb:bbox([poly]),pts:samples.filter(([x,y])=>{let c=false;for(const r of poly)if(pip(x,y,r))c=!c;return c;})}));
   if(cl.length!==comps.length) return 0;
   const used=new Set(); let hit=0,tot=0;
   for(const c of comps){

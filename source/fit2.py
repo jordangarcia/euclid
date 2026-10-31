@@ -1,14 +1,14 @@
-import numpy as np, math, subprocess, json, sys, os
+import numpy as np, math, subprocess, json, sys, os, tempfile
 from fit import mask_for, theta_cands, target_grid, PM, OR, R
 TYPES=['B','T','S','s']; CNT={'B':2,'T':2,'S':1,'s':2}
 def run_bb(g,N,limit,init):
-    fn=f'/tmp/bb_{os.getpid()}.txt'
+    fn=os.path.join(tempfile.gettempdir(),f'bb_{os.getpid()}.txt')
     with open(fn,'w') as f:
         f.write(f'{N} {N} 4\n'+' '.join(map(str,g.flatten()))+'\n')
         for t in TYPES:
             f.write(f'{CNT[t]}\n')
             for w,h,mm in PM[t]: f.write(f'{w} {h} '+' '.join(map(str,mm.flatten()))+'\n')
-    out=subprocess.run(['./bb',fn,str(limit),str(init)],capture_output=True,text=True).stdout.strip().split('\n')
+    out=subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)),'bb'),fn,str(limit),str(init)],capture_output=True,text=True).stdout.strip().split('\n')
     best,bn,px,py=map(int,out[0].split())
     st=[tuple(map(int,l.split())) for l in out[1:1+bn]]
     return best,st

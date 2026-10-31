@@ -1,6 +1,6 @@
 """Thorough single-frame refit of one puzzle.
 
-Coarse scan of frame angle (edge-direction candidates + every 6°), then
+Coarse scan of frame angle (edge-direction candidates + every 3°), then
 refine the best three angles with a larger node budget.
 Writes data/refit/NNN.json so several puzzles can run in parallel.
 
@@ -17,13 +17,13 @@ from fit import mask_for, theta_cands
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "data", "refit")
 
-COARSE_NODES = 400_000
-FINE_NODES = 3_000_000
+COARSE_NODES = 4_000_000
+FINE_NODES = 40_000_000
 
 
 def refit(n):
     m = mask_for(n)
-    coarse = sorted(set([round(float(t), 1) for t in theta_cands(m)] + [float(t) for t in range(0, 90, 6)]))
+    coarse = sorted(set([round(float(t), 1) for t in theta_cands(m)] + [float(t) for t in range(0, 90, 3)]))
 
     scored = []
     for th in coarse:

@@ -57,6 +57,10 @@ CONFIGS = {
     5: dict(fixed=[[("S", [(-0.5, -1), (0.5, -1), (0.5, 0), (-0.5, 0)])]], left=["B", "T", "s"]),
     # 9: rectangle with a shallow V notch along the bottom. Square somewhere on the axis.
     9: dict(fixed=square_options(2.5), left=["B", "T", "s"]),
+    # 20: "!" — a V over a separate diamond. The diamond is the square on its corner with
+    # its bottom vertex at y=0; the V's tip sits on the axis just above it.
+    20: dict(fixed=[[centered_square(-2 * H, diamond=True)]], left=["B", "T", "s"], parts=2,
+             anchors=[(0.0, -2 * H - gap) for gap in (0.1, 0.2, 0.3)]),
 }
 
 INSIDE_MIN = 0.7
@@ -110,8 +114,8 @@ def vertices(polys):
     return vs
 
 
-def axis_anchors():
-    return {(0.0, -k * 0.25) for k in range(0, 21)}
+def axis_anchors(extra=()):
+    return {(0.0, -k * 0.25) for k in range(0, 21)} | {(round(x, 6), round(y, 6)) for x, y in extra}
 
 
 def placements_at(t, anchor, inside_frac, cache):
@@ -141,8 +145,8 @@ def placements_at(t, anchor, inside_frac, cache):
     return cache[key]
 
 
-def candidates(placed, t, inside_frac, cache):
-    anchors = [a for a in vertices(placed) | axis_anchors() if a[0] <= 1e-6]
+def candidates(placed, t, inside_frac, cache, extra_anchors=()):
+    anchors = [a for a in vertices(placed) | axis_anchors(extra_anchors) if a[0] <= 1e-6]
     seen = {}
     for anchor in anchors:
         for k, q in placements_at(t, anchor, inside_frac, cache):
@@ -185,7 +189,7 @@ def search(n):
             nxt = []
             for left in frontier:
                 placed = [p for _, p in fixed] + [p for _, p in left]
-                for cand in candidates(placed, t, inside_frac, cache):
+                for cand in candidates(placed, t, inside_frac, cache, cfg.get("anchors", ())):
                     nxt.append(left + [cand])
             frontier = nxt
         for left in frontier:
@@ -195,14 +199,15 @@ def search(n):
             if any(polys[i].intersection(polys[j]).area > 1e-6 for i in range(len(polys)) for j in range(i + 1, len(polys))):
                 continue
             U, rings = outline_of(polys)
-            if U.geom_type != "Polygon" or abs(U.area - 5) > 1e-4:
+            n_parts = 1 if U.geom_type == "Polygon" else len(U.geoms)
+            if n_parts != cfg.get("parts", 1) or abs(U.area - 5) > 1e-4:
                 continue
             key = tuple(sorted(tuple(sorted((round(x, 4), round(y, 4)) for x, y in p.exterior.coords[:-1])) for p in polys))
             finals[key] = (allp, rings)
 
     ranked = []
     for allp, rings in finals.values():
-        res, _, _ = score.score({"n": n, "outline": rings})
+        res, _, _ = score.score({"n": n, "outline": rings}, True)
         if res["mirror"]:
             continue
         pieces = [(t, [list(c) for c in p.exterior.coords[:-1]]) for t, p in allp]

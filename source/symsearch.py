@@ -150,7 +150,8 @@ def candidates(placed, t, inside_frac, cache):
                 continue
             if any(p.intersection(q).area > 1e-6 for p in placed):
                 continue
-            touches = any(p.boundary.intersection(q.boundary).length > 0.2 for p in placed)
+            # buffer: shared edges come back as points without it due to float error
+            touches = any(p.boundary.buffer(1e-6).intersection(q.boundary).length > 0.2 for p in placed)
             on_axis = q.bounds[2] > -1e-6
             if not (touches or on_axis):
                 continue

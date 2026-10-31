@@ -1,4 +1,4 @@
-import json, math
+import json, math, os
 from lib import validate, A
 M={}
 p3=[('B',[(0,0),(2,1),(0,1)]),('B',[(2,1),(4,2),(2,2)]),('T',[(0,2),(-1,2),(-0.5,1),(0,1)]),('s',[(0,1),(-0.5,1),(0,0)]),
@@ -17,9 +17,15 @@ M[23]=dict(theta=0,pieces=[('S',[(0.5,0),(1.5,0),(1.5,1),(0.5,1)]),('s',[(0.5,0)
   ('B',[(0,1),(2,1),(0,2)]),('B',[(2,1),(2,2),(0,2)]),('T',[(0,2),(1,2),(1,3),(0.5,3)]),('T',[(1,2),(2,2),(1.5,3),(1,3)])])
 M[18]=dict(theta=0,pieces=[('B',[(0,1),(2,1),(0,2)]),('B',[(2,1),(2,2),(0,2)]),('S',[(2,1),(3,1),(3,2),(2,2)]),
   ('T',[(1.5,0),(2.5,0),(2.5,0.5),(1.5,1)]),('s',[(1.5,1),(2.5,0.5),(2.5,1)]),('T',[(0.5,2),(1.5,2),(1.5,2.5),(0.5,3)]),('s',[(0.5,3),(1.5,2.5),(1.5,3)])])
+# 14: four-point pinwheel star. Unit square hub; each arm is a 2×1 right triangle
+# whose outer leg continues a side of the hub. Two arms are B, two are T+s.
+M[14]=dict(theta=0,pieces=[('S',[(0,0),(1,0),(1,1),(0,1)]),
+  ('B',[(0,0),(1,0),(1,-2)]),('B',[(1,1),(0,1),(0,3)]),
+  ('T',[(1,1),(2,1),(2,0.5),(1,0)]),('s',[(2,1),(3,1),(2,0.5)]),
+  ('T',[(0,0),(-1,0),(-1,0.5),(0,1)]),('s',[(-1,0),(-2,0),(-1,0.5)])])
 if __name__=='__main__':
     out={}
     for n,p in M.items():
         e,_,_=validate(n,{'pieces':p['pieces']}); print(n,e)
         out[str(n)]=dict(n=n,theta=math.degrees(0)+p['theta'],pieces=p['pieces'],iou=1.0,manual=True)
-    json.dump(out,open('manual.json','w'))
+    json.dump(out,open(os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','data','manual.json'),'w'))

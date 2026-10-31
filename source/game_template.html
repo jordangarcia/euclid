@@ -141,8 +141,15 @@ function loadStore(){
     if(!v2){ return {}; }
     const remap={6:5,7:6,5:7};
     const solved=(v2.solved||[]).map(n=>remap[n]||n);
-    const old=PUZZLES[(v2.cur||1)-1];
-    return {solved, num: old?old.n:1};
+    // v2's cur indexed its own 96-puzzle list: 1–101 minus 32, 85, 99, 100, 101.
+    const v2List=[];
+    for(let n=1;n<=101;n++){
+      if(![32,85,99,100,101].includes(n)){
+        v2List.push(n);
+      }
+    }
+    const oldNum=v2List[(v2.cur||1)-1]||1;
+    return {solved, num: remap[oldNum]||oldNum};
   }catch(e){
     return {};
   }

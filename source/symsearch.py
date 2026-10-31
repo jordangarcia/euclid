@@ -1,10 +1,11 @@
 """Exact search for mirror-symmetric silhouettes.
 
 The axis is x=0, y points down, the shape's lowest point sits at y=0.
-Fixed pieces are given in those coordinates (they may straddle the axis).
+Fixed pieces are given in those coordinates (they may straddle the axis);
+a config can list several fixed alternatives (e.g. the square at each height).
 The remaining pieces are placed on the left half only, one at a time, each
 snapped vertex-to-vertex onto something already placed (or onto the axis),
-at angles from the 0° and 45° families. The right half is the mirror image.
+at angles from the 0°, 45° and 26.57°-tilted families. The right half is the mirror image.
 
 Every placement must sit mostly inside the target mask (aligned by axis and
 bottom), which keeps the search small. Finished layouts are ranked by IoU
@@ -29,15 +30,36 @@ from lib import CANON, CSIG, sig
 import score
 
 A = math.degrees(math.atan(0.5))
-ANGLES = sorted(set(round((o + k * 90) % 360, 4) for o in (0, A, 45 - A, 45, 45 + A, 90 - A) for k in range(4)))
+ANGLES = sorted(set(round((o + k * 90) % 360, 4) for o in (0, A, 2 * A, 45 - A, 45, 45 + A, 90 - 2 * A, 90 - A) for k in range(4)))
 H = 1 / math.sqrt(2)
+
+def centered_square(top, diamond=False):
+    """The square straddling the axis: axis-aligned with its top edge at y=top, or a diamond with its top vertex there."""
+    if diamond:
+        return ("S", [(0, top), (H, top + H), (0, top + 2 * H), (-H, top + H)])
+    return ("S", [(-0.5, top), (0.5, top), (0.5, top + 1), (-0.5, top + 1)])
+
+
+def square_options(max_depth=3.0):
+    """Every axis-aligned or diamond square on the axis, tops on a 0.25 grid, above y=0."""
+    opts = []
+    for k in range(0, int(max_depth / 0.25) + 1):
+        top = -k * 0.25
+        if top + 1 <= 1e-9:
+            opts.append([centered_square(top)])
+        if top + 2 * H <= 1e-9:
+            opts.append([centered_square(top, diamond=True)])
+    return opts
+
 
 CONFIGS = {
     # 5: arrow. Square stem on the axis, roof = 2B + 2T + 2s.
-    5: dict(fixed=[("S", [(-0.5, -1), (0.5, -1), (0.5, 0), (-0.5, 0)])], left=["B", "T", "s"]),
+    5: dict(fixed=[[("S", [(-0.5, -1), (0.5, -1), (0.5, 0), (-0.5, 0)])]], left=["B", "T", "s"]),
+    # 9: rectangle with a shallow V notch along the bottom. Square somewhere on the axis.
+    9: dict(fixed=square_options(2.5), left=["B", "T", "s"]),
 }
 
-INSIDE_MIN = 0.85
+INSIDE_MIN = 0.7
 
 
 def load_frame(n):
@@ -92,26 +114,47 @@ def axis_anchors():
     return {(0.0, -k * 0.25) for k in range(0, 21)}
 
 
-def candidates(placed, t, inside_frac):
-    anchors = [a for a in vertices(placed) | axis_anchors() if a[0] <= 1e-6]
-    seen = {}
+def placements_at(t, anchor, inside_frac, cache):
+    """All left-half placements of piece t with some vertex on anchor that sit inside the mask."""
+    key = (t, anchor)
+    if key in cache:
+        return cache[key]
+
+    ax, ay = anchor
+    found = {}
     for pl in ORIENT[t]:
         for vx, vy in pl:
-            for ax, ay in anchors:
-                pts = [(x - vx + ax, y - vy + ay) for x, y in pl]
-                q = Polygon(pts)
-                if q.bounds[2] > 1e-6 or q.bounds[3] > 1e-6:
-                    continue
-                if any(p.intersection(q).area > 1e-6 for p in placed):
-                    continue
-                touches = any(p.boundary.intersection(q.boundary).length > 0.2 for p in placed)
-                on_axis = q.bounds[2] > -1e-6
-                if not (touches or on_axis):
-                    continue
-                if inside_frac(q) < INSIDE_MIN:
-                    continue
-                key = tuple(sorted((round(x, 4), round(y, 4)) for x, y in pts))
-                seen[key] = (t, q)
+            pts = [(x - vx + ax, y - vy + ay) for x, y in pl]
+            maxx = max(x for x, _ in pts)
+            maxy = max(y for _, y in pts)
+            if maxx > 1e-6 or maxy > 1e-6:
+                continue
+            k = tuple(sorted((round(x, 4), round(y, 4)) for x, y in pts))
+            if k in found:
+                continue
+            q = Polygon(pts)
+            if inside_frac(q) < INSIDE_MIN:
+                continue
+            found[k] = q
+
+    cache[key] = list(found.items())
+    return cache[key]
+
+
+def candidates(placed, t, inside_frac, cache):
+    anchors = [a for a in vertices(placed) | axis_anchors() if a[0] <= 1e-6]
+    seen = {}
+    for anchor in anchors:
+        for k, q in placements_at(t, anchor, inside_frac, cache):
+            if k in seen:
+                continue
+            if any(p.intersection(q).area > 1e-6 for p in placed):
+                continue
+            touches = any(p.boundary.intersection(q.boundary).length > 0.2 for p in placed)
+            on_axis = q.bounds[2] > -1e-6
+            if not (touches or on_axis):
+                continue
+            seen[k] = (t, q)
     return list(seen.values())
 
 
@@ -130,16 +173,18 @@ def search(n):
     cfg = CONFIGS[n]
     m, scale, x0, ybot = load_frame(n)
     inside_frac = make_inside(m, scale, x0, ybot)
-    fixed = [(t, Polygon(p)) for t, p in cfg["fixed"]]
-
     finals = {}
-    for order in set(itertools.permutations(cfg["left"])):
+    cache = {}
+    for fixed_spec, order in itertools.product(cfg["fixed"], set(itertools.permutations(cfg["left"]))):
+        fixed = [(t, Polygon(p)) for t, p in fixed_spec]
+        if any(inside_frac(p) < INSIDE_MIN for _, p in fixed):
+            continue
         frontier = [[]]
         for t in order:
             nxt = []
             for left in frontier:
                 placed = [p for _, p in fixed] + [p for _, p in left]
-                for cand in candidates(placed, t, inside_frac):
+                for cand in candidates(placed, t, inside_frac, cache):
                     nxt.append(left + [cand])
             frontier = nxt
         for left in frontier:

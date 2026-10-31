@@ -4,7 +4,7 @@ Rasterizes the solution outline at the mask's scale, aligns centroids and
 searches rotation (and mirror, to catch flipped data). Prints IoU per puzzle
 and writes a contact sheet: mask in grey, solution in green, mismatch in red.
 
-usage: score.py puzzles.json out.png [n ...]
+usage: score.py puzzles.json out.png [n ...] [--affine]
 """
 import json
 import math
@@ -23,14 +23,17 @@ def load_mask(n):
     return m
 
 
-def raster(outline, scale, rot, mirror, shape, center):
+def raster(outline, scale, rot, mirror, shape, center, warp=(1.0, 1.0, 0.0)):
+    # warp = (x stretch, y stretch, shear) applied after rotation, to absorb photo keystone
     c, s = math.cos(rot), math.sin(rot)
+    sx, sy, sh = warp
 
     def tx(v):
         x, y = v
         if mirror:
             x = -x
-        return (center[0] + (c * x - s * y) * scale, center[1] + (s * x + c * y) * scale)
+        rx, ry = c * x - s * y, s * x + c * y
+        return (center[0] + (sx * rx + sh * ry) * scale, center[1] + sy * ry * scale)
 
     img = Image.new("L", (shape[1], shape[0]), 0)
     d = ImageDraw.Draw(img)
@@ -58,7 +61,7 @@ def centroid_of(outline):
     return cx / (6 * A), cy / (6 * A)
 
 
-def score(p):
+def score(p, affine=False):
     m = load_mask(p["n"])
     pad = 40
     m = np.pad(m, pad)
@@ -68,8 +71,8 @@ def score(p):
     ox, oy = centroid_of(p["outline"])
     outline = [[[(x - ox, y - oy) for x, y in ring] for ring in poly] for poly in p["outline"]]
 
-    def iou(rot, mirror):
-        r = raster(outline, scale, rot, mirror, m.shape, center)
+    def iou(rot, mirror, warp=(1.0, 1.0, 0.0)):
+        r = raster(outline, scale, rot, mirror, m.shape, center, warp)
         return (r & m).sum() / (r | m).sum(), r
 
     best = None
@@ -84,8 +87,24 @@ def score(p):
         if v > best[0]:
             best = (v, d, mirror)
     v, deg, mirror = best
-    _, r = iou(math.radians(deg), mirror)
-    return dict(n=p["n"], iou=round(float(v), 3), rot=float(deg), mirror=mirror), m, r
+    warp = (1.0, 1.0, 0.0)
+
+    # Photos are slightly keystoned; let the outline stretch/shear a little so a
+    # correct shape isn't penalised for camera distortion.
+    if affine:
+        steps = (-0.12, -0.06, 0.0, 0.06, 0.12)
+        for d in (-1.5, 0, 1.5):
+            for sx in steps:
+                for sy in steps:
+                    for sh in steps:
+                        w = (1 + sx, 1 + sy, sh)
+                        val, _ = iou(math.radians(deg + d), mirror, w)
+                        if val > v:
+                            v, warp, best_d = val, w, d
+        deg = deg + (best_d if warp != (1.0, 1.0, 0.0) else 0)
+
+    _, r = iou(math.radians(deg), mirror, warp)
+    return dict(n=p["n"], iou=round(float(v), 3), rot=float(deg), mirror=mirror, warp=warp), m, r
 
 
 def tile(n, v, m, r, size=150):
@@ -104,15 +123,17 @@ def tile(n, v, m, r, size=150):
 
 
 if __name__ == "__main__":
-    puzzles = json.load(open(sys.argv[1]))
-    out_png = sys.argv[2]
-    only = set(map(int, sys.argv[3:]))
+    args = [a for a in sys.argv[1:] if a != "--affine"]
+    affine = "--affine" in sys.argv
+    puzzles = json.load(open(args[0]))
+    out_png = args[1]
+    only = set(map(int, args[2:]))
     if only:
         puzzles = [p for p in puzzles if p["n"] in only]
 
     tiles = []
     for p in puzzles:
-        res, m, r = score(p)
+        res, m, r = score(p, affine)
         flag = " MIRROR" if res["mirror"] else ""
         print(f"{res['n']:3d} {res['iou']:.3f}{flag}", flush=True)
         tiles.append(tile(res["n"], res["iou"], m, r))

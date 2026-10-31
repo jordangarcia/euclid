@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+.DS_Store
+# source photos and crops of the NOB sheets stay local
+assets/

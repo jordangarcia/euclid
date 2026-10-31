@@ -1,0 +1,16 @@
+{
+  "name": "Euclid — NOB silhouette puzzle",
+  "short_name": "Euclid",
+  "description": "Seven pieces, a hundred silhouettes. A web version of NOB's Euclid puzzle.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F3F2EE",
+  "theme_color": "#1D6B45",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
